@@ -1,0 +1,24 @@
+{
+  "name": "cabal-irc",
+  "version": "1.0.0",
+  "description": "Connect to Cabal using an IRC client.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cabal-club/cabal-irc.git"
+  },
+  "keywords": [
+    "p2p",
+    "cabal",
+    "chat",
+    "irc"
+  ],
+  "author": "Karissa McKelvey",
+  "bugs": {
+    "url": "https://github.com/cabal-club/cabal-irc/issues"
+  },
+  "homepage": "https://github.com/cabal-club/cabal-irc#readme"
+}
