@@ -20,5 +20,16 @@
   "bugs": {
     "url": "https://github.com/cabal-club/cabal-irc/issues"
   },
-  "homepage": "https://github.com/cabal-club/cabal-irc#readme"
+  "homepage": "https://github.com/cabal-club/cabal-irc#readme",
+  "dependencies": {
+    "cabal-node": "^1.0.0",
+    "irc-protocol": "^1.0.1",
+    "irc-upd": "^0.9.0",
+    "minimist": "^1.2.0"
+  },
+  "devDependencies": {
+    "irc-client": "0.0.2",
+    "random-access-memory": "^3.0.0",
+    "tape": "^4.9.0"
+  }
 }
