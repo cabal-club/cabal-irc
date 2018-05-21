@@ -40,7 +40,7 @@ module.exports = class CabalIRC {
   }
 
   ping (user, message) {
-    user.socket.write(':localhost PONG localhost :' + message.parameters[0] + '\n')
+    user.socket.write(`:${this.hostname} PONG ${this.hostname} :` + message.parameters[0] + '\n')
   }
 
   part (user, message) {
@@ -59,16 +59,16 @@ module.exports = class CabalIRC {
     var nick = message.parameters[0]
     var target = this.users[nick]
     if (!target) {
-      user.socket.write(':localhost 401 ' + user.nick + ' ' + nick + ' :No such nick/channel\n')
+      user.socket.write(`:${this.hostname} 401 ` + user.nick + ` ` + nick + ` :No such nick/channel\n`)
       return
     }
-    user.socket.write(':localhost 311 ' + user.nick + ' ' + target.nick + ' ' + target.username + ' fakeaddr * :' + target.realname + '\n')
-    user.socket.write(':localhost 318 ' + user.nick + ' :End of WHOIS list\n')
+    user.socket.write(`:${this.hostname} 311 ` + user.nick + ` ` + target.nick + ` ` + target.username + ` fakeaddr * :` + target.realname + `\n`)
+    user.socket.write(`:${this.hostname} 318 ` + user.nick + ` :End of WHOIS list\n`)
   }
 
   mode (user, message) {
     var channel = message.parameters[0]
-    user.socket.write(':localhost ' + channel + '+ns\n')
+    user.socket.write(`:${this.hostname} ` + channel + '+ns\n')
   }
 
   join (user, message) {
