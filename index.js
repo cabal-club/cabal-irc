@@ -1,6 +1,6 @@
 const Protocol = require('irc-protocol')
-const Cabal = require('cabal-node')
-const Swarm = require('cabal-node/swarm')
+const Cabal = require('cabal-core')
+const Swarm = require('cabal-core/swarm.js')
 
 let log = function (...args) {
   let t = new Date()
@@ -23,12 +23,29 @@ const Cmd = ((numerics) => {
 module.exports = class CabalIRC {
   constructor (storage, key, opts) {
     if (!opts) opts = {}
-    this.channels = {}
-    this.cabal = Cabal(storage, key, opts)
+
+    if (!storage && key) {
+      let homedir = process.env.HOME || process.env.HOMEPATH || process.env.USERPROFILE
+      let rootdir = args.dir || (homedir + '/.cabal/archives/')
+      storage = rootdir + args.key
+    }
+
+    if (key) {
+      key = key.replace(/^(cabal|cbl|dat):\/\//).replace(/\//g, '')
+      this.cabal = Cabal(storage, key, opts)
+    } else {
+      this.cabal = Cabal(storage, null)
+    }
+
     this.hostname = opts.hostname || '127.0.0.1'
     this.users = {}
     this.channels = {}
-    this.cabal.db.ready(this._onopen.bind(this))
+    this.cabal.db.ready(() => {
+      if (!key) this.cabal.getLocalKey((err, key) => {
+        log(`New cabal instance created, public key:\ncabal://${key}`)
+      })
+      this._onopen.bind(this)
+    })
   }
 
   quit () {
@@ -114,16 +131,17 @@ module.exports = class CabalIRC {
   }
 
   list (user, message) {
-    // TODO: cabal.channels is an empty object.. nogo.
-    //this.cabal.channels.get((err, channels) => {
-      let channels = [{name: '#default', users: 7, topic: 'the cabal-club'}] // Chanlist dummy
+    this.cabal.channels.get((err, channels) => {
+      //let channels = [{name: '#default', users: 7, topic: 'the cabal-club'}] // Chanlist dummy
 
       user.socket.write(`:${this.hostname} ${Cmd.RPL_LISTSTART} ${user.nick} Channel :Users  Name\r\n`)
-      channels.forEach(channel => {
+      channels
+        .map(ch => ({name: ch, users: '-1', topic: ''}))
+        .forEach(channel => {
         user.socket.write(`:${this.hostname} ${Cmd.RPL_LIST} ${user.nick} ${channel.name} ${channel.users} :${channel.topic}\r\n`)
       })
       user.socket.write(`:${this.hostname} ${Cmd.RPL_LISTEND} ${user.nick} :End of /LIST"\r\n`)
-    //})
+    })
   }
 
   // The incoming connection handler
