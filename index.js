@@ -1,6 +1,24 @@
-var Protocol = require('irc-protocol')
-var Cabal = require('cabal-node')
-var Swarm = require('cabal-node/swarm')
+const Protocol = require('irc-protocol')
+const Cabal = require('cabal-node')
+const Swarm = require('cabal-node/swarm')
+
+let log = function (...args) {
+  let t = new Date()
+  let timestamp = [t.getHours(), t.getMinutes(), t.getSeconds()]
+    .map(i=> i.toString().padStart(2,'0'))
+    .join(':')
+  console.log.apply(null,[timestamp, ...args])
+}
+
+// Expose all IRC numerics as lookup maps:
+// Cmd with format:         { command: number }
+const Cmd = ((numerics) => {
+  return Object.keys(numerics)
+  .reduce((hash, code) => {
+    hash[numerics[code]] = parseInt(code)
+    return hash
+  }, {})
+})(require('irc-protocol/numerics'))
 
 module.exports = class CabalIRC {
   constructor (storage, key, opts) {
@@ -19,82 +37,100 @@ module.exports = class CabalIRC {
 
   _onopen () {
     this.swarm = Swarm(this.cabal)
-    console.log('joined swarm')
+    log('joined swarm')
   }
+
 
   user (user, message) {
     delete this.users[user.nick]
     user.username = message.parameters[0]
     user.realname = message.parameters[3]
     this.users[user.nick] = this.users
-    user.socket.write(`:${this.hostname} 375 ${user.nick} :- 127.0.0.1 Message of the day - \n`)
-    user.socket.write(`:${this.hostname} 372 ${user.nick} :- whoo\n`)
-    user.socket.write(`:${this.hostname} 376 ${user.nick} :End of MOTD command\n`)
+    // Send motd
+    user.socket.write(`:${this.hostname} ${Cmd.RPL_MOTDSTART} ${user.nick} :- ${this.hostname} Message of the day - \r\n`)
+    // TODO: use a plaintext file instead and loop-send each line.
+    user.socket.write(`:${this.hostname} ${Cmd.RPL_MOTD} ${user.nick} :- Welcome to cabal-irc gateway            -\r\n`)
+    user.socket.write(`:${this.hostname} ${Cmd.RPL_MOTD} ${user.nick} :- Enjoy using your favourite IRC-software -\r\n`)
+    user.socket.write(`:${this.hostname} ${Cmd.RPL_MOTD} ${user.nick} :- on the decentralized Cabal network      -\r\n`)
+    user.socket.write(`:${this.hostname} ${Cmd.RPL_ENDOFMOTD} ${user.nick} :End of MOTD command\r\n`)
   }
 
   nick (user, message) {
     delete this.users[user.nick]
     user.nick = message.parameters[0]
     this.users[user.nick] = user
-    user.socket.write(`:${this.hostname} 001 ${user.nick} :Welcome to cabal!\n`)
+    user.socket.write(`:${this.hostname} ${Cmd.WELCOME} ${user.nick} :Welcome to cabal!\r\n`)
   }
 
   ping (user, message) {
-    user.socket.write(`:${this.hostname} PONG ${this.hostname} :` + message.parameters[0] + '\n')
+    user.socket.write(`:${this.hostname} PONG ${this.hostname} :` + message.parameters[0] + '\r\n')
   }
 
   part (user, message) {
-    console.log(message)
+    log(message)
   }
 
   privmsg (user, message) {
-    console.log(message)
+    log(message)
   }
 
   welcome (user, message) {
-    console.log(message)
+    log(message)
   }
 
   whois (user, message) {
-    var nick = message.parameters[0]
-    var target = this.users[nick]
+    let nick = message.parameters[0]
+    let target = this.users[nick]
     if (!target) {
-      user.socket.write(`:${this.hostname} 401 ` + user.nick + ` ` + nick + ` :No such nick/channel\n`)
+      user.socket.write(`:${this.hostname} ${Cmd.ERR_NOSUCHNICK} ` + user.nick + ` ` + nick + ` :No such nick/channel\r\n`)
       return
     }
-    user.socket.write(`:${this.hostname} 311 ` + user.nick + ` ` + target.nick + ` ` + target.username + ` fakeaddr * :` + target.realname + `\n`)
-    user.socket.write(`:${this.hostname} 318 ` + user.nick + ` :End of WHOIS list\n`)
+    user.socket.write(`:${this.hostname} ${Cmd.RPL_WHOISUSER} ` + user.nick + ` ` + target.nick + ` ` + target.username + ` fakeaddr * :` + target.realname + `\r\n`)
+    user.socket.write(`:${this.hostname} ${Cmd.RPL_ENDOFWHOIS} ` + user.nick + ` :End of WHOIS list\r\n`)
   }
 
   mode (user, message) {
-    var channel = message.parameters[0]
-    user.socket.write(`:${this.hostname} ` + channel + '+ns\n')
+    let channel = message.parameters[0]
+    user.socket.write(`:${this.hostname} ` + channel + '+ns\r\n')
   }
 
   join (user, message) {
-    var channel = message.parameters[0]
-    var channels = this.channels
-    var hostname = this.hostname
+    let channel = message.parameters[0]
+    let {channels, hostname} = this
+
     if (!channels[channel]) {
       channels[channel] = {users: []}
     }
     channels[channel].users.push(user.nick)
-    user.socket.write(`:${user.nick} JOIN ${channel} \n`)
-    user.socket.write(`:${hostname} ${channel} :stock welcome message\n`)
-    var nicks = channels[channel].users
+    user.socket.write(`:${user.nick} JOIN ${channel} \r\n`)
+    user.socket.write(`:${hostname} ${channel} :stock welcome message\r\n`)
+    let nicks = channels[channel].users
       .map(function (nick) {
         return nick
       })
       .join(' ')
-    user.socket.write(`:${hostname} 353 ${user.nick} @ ${channel} :${nicks} \n`)
-    user.socket.write(`:${hostname} 366 ${user.nick} ${channel} :End of /NAMES list.\n`)
+    user.socket.write(`:${hostname} ${Cmd.RPL_NAMREPLY} ${user.nick} @ ${channel} :${nicks} \r\n`)
+    user.socket.write(`:${hostname} ${Cmd.RPL_ENDOFNAMES} ${user.nick} ${channel} :End of /NAMES list.\r\n`)
   }
 
+  list (user, message) {
+    // TODO: cabal.channels is an empty object.. nogo.
+    //this.cabal.channels.get((err, channels) => {
+      let channels = [{name: '#default', users: 7, topic: 'the cabal-club'}] // Chanlist dummy
+
+      user.socket.write(`:${this.hostname} ${Cmd.RPL_LISTSTART} ${user.nick} Channel :Users  Name\r\n`)
+      channels.forEach(channel => {
+        user.socket.write(`:${this.hostname} ${Cmd.RPL_LIST} ${user.nick} ${channel.name} ${channel.users} :${channel.topic}\r\n`)
+      })
+      user.socket.write(`:${this.hostname} ${Cmd.RPL_LISTEND} ${user.nick} :End of /LIST"\r\n`)
+    //})
+  }
+
+  // The incoming connection handler
   listen (socket) {
-    var self = this
-    var user = {
+    const user = {
       name: socket.remoteAddress + ':' + socket.remotePort,
-      socket: socket,
+      socket,
       nick: 'anonymous_' + Math.floor(Math.random() * 9999)
     }
 
@@ -102,16 +138,19 @@ module.exports = class CabalIRC {
     user.realname = user.nick
     this.users[user] = user
 
-    var parser = new Protocol.Parser()
+    let parser = new Protocol.Parser()
     socket.pipe(parser)
-    parser.on('readable', function () {
-      var message
+    parser.on('readable', () => {
+      // Are we guaranteed to always recieve an intact irc-message on parser.read()?
+      // In what situation does the while-loop run twice, and if it does what
+      // will the message be?
+      let message
       while ((message = parser.read()) !== null) {
-        var cmd = message.command.toLowerCase()
-        console.log(message)
-        var fn = self[cmd]
-        if (!fn) self.notImplemented(user, cmd)
-        else fn.bind(self)(user, message)
+        let cmd = message.command.toLowerCase()
+        log(message)
+        let fn = this[cmd]
+        if (!fn) this.notImplemented(user, cmd)
+        else fn.apply(this, [user, message])
       }
     })
   }
