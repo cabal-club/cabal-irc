@@ -37,7 +37,6 @@ server.listen(port, host, function () {
     t.plan(1)
     client.list()
     client.on('channellist', list => {
-      console.log('RECV, list:', list)
       t.ok(list, 'channel list received')
       t.end()
     })
