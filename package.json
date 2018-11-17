@@ -4,9 +4,9 @@
   "description": "Connect to Cabal using an IRC client.",
   "main": "index.js",
   "scripts": {
-    "test": "$(npm bin)/tape test.js",
+    "test": "NODE_ENV=test $(npm bin)/tape test.js",
     "start": "node cli.js --db=./testdb --key=${CABAL_KEY}",
-    "debug": "node debug test.js"
+    "debug": "NODE_ENV=test node --inspect-brk test.js"
   },
   "repository": {
     "type": "git",
@@ -24,9 +24,9 @@
   },
   "homepage": "https://github.com/cabal-club/cabal-irc#readme",
   "dependencies": {
-    "cabal-core": "^3.0.4",
+    "cabal-core": "^4.0.0",
     "irc-protocol": "^1.0.1",
-    "irc-upd": "^0.9.0",
+    "irc-upd": "^0.10.0",
     "minimist": "^1.2.0"
   },
   "devDependencies": {
