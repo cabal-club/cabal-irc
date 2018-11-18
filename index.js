@@ -133,6 +133,10 @@ class CabalIRC {
           return reject(err)
         }
 
+        // Some irc-clients rejoin on reconnection faster than
+        // our _forceJoin causing duplicate channel listings.
+        if (this.joinedChannels.indexOf(channel) !== -1) return resolve(false)
+
         this._write(`:${this._user.nick}!cabalist@${this.hostname} JOIN #${channel} \r\n`)
         this._write(`:${this.hostname} ${Cmd.RPL_TOPIC} ${this._user.nick} #${channel} :TODO TOPIC\r\n`)
 
@@ -143,11 +147,12 @@ class CabalIRC {
 
         this._write(`:${this.hostname} ${Cmd.RPL_NAMREPLY} ${this._user.nick} = #${channel} :${nicks} \r\n`)
         this._write(`:${this.hostname} ${Cmd.RPL_ENDOFNAMES} ${this._user.nick} #${channel} :End of /NAMES list.\r\n`)
-        resolve()
+        resolve(true)
       })
     })
-      .then(() => { // Mark channel as joined.
-        this.joinedChannels.push(channel)
+      .then((joined) => { // Mark channel as joined.
+        if (joined) this.joinedChannels.push(channel)
+        return joined
       })
       .catch(err => log(`Failed joining channel ${channel}\n`, err))
   }
@@ -158,7 +163,7 @@ class CabalIRC {
     return promisify(this.cabal.channels.get)()
       .then(channels => {
         return channels.reduce((chain, channel) => {
-          chain.then(() => {
+          return chain.then(() => {
             return this._joinChannel(channel)
           })
         }, Promise.resolve())
@@ -180,11 +185,16 @@ class CabalIRC {
   }
 
   // Identity change and also Step 1 of IRC handshake
-  nick (parameters) {
-    /*
-    user.nick = parameters[0]
-    this.users[user.nick] = user
-    */
+  nick ([nick]) {
+    this.cabal.publishNick(nick, (err) => {
+      if (err) {
+        log('Failed to publish nick\n', err)
+        this.write(`:${this.hostname} ${Cmd.ERR_NICKNAMEINUSE} ${this._user.nick} ${nick} :${err.type}`)
+      } else {
+        this._write(`:${this._user.nick}!cabalist@${this.hostname} NICK :${nick}\r\n`)
+        this._user.nick = nick // Nick update successful.
+      }
+    })
   }
 
   // Step 2 of IRC handshake
@@ -259,37 +269,49 @@ class CabalIRC {
     // responding as instructed in:
     this._write(`CAP * LIST :`)
   }
+
+  join ([channels]) {
+    channels.split(',')
+    .map(c => c.replace(/^#/,''))
+    .reduce((chain, channel) => {
+      return chain.then(() => this._joinChannel(channel))
+    }, Promise.resolve())
+  }
   // The incoming connection handler
   listen (socket) {
-    const user = {
-      name: socket.remoteAddress + ':' + socket.remotePort,
-      socket,
-      nick: 'anonymous_' + Math.floor(Math.random() * 9999)
-    }
-
-    user.username = user.nick
-    user.realname = user.nick
-
-    // If a user is already connected,
-    // then disconnect that previous one and
-    // set the new one as active.
-    if (this._user) {
-      this.quit()
-    }
-
-    this._user = user
-
-    let parser = new Protocol.Parser()
-    socket.pipe(parser)
-    parser.on('readable', () => {
-      let message
-      while ((message = parser.read()) !== null) {
-        let cmd = message.command.toLowerCase()
-        // log(message)
-        let fn = this[cmd]
-        if (!fn) this.notImplemented(message)
-        else fn.apply(this, [message.parameters])
+    this.cabal.users.get(this.cabal.key, (err, nick) => {
+      if(err && err.type !== 'NotFoundError') {
+        log("Failed looking up user:\n", err)
       }
+      const user = {
+        name: socket.remoteAddress + ':' + socket.remotePort,
+        socket,
+        nick: nick ? nick.name : this.cabal.key.slice(0, 10)
+      }
+      user.username = user.nick
+      user.realname = user.nick
+
+      // If a user is already connected,
+      // then disconnect that previous one and
+      // set the new one as active.
+      if (this._user) {
+        this.quit()
+      }
+
+      this._user = user
+
+      let parser = new Protocol.Parser()
+      socket.pipe(parser)
+      parser.on('readable', () => {
+        let message
+        while ((message = parser.read()) !== null) {
+          let cmd = message.command.toLowerCase()
+          // log(message)
+          let fn = this[cmd]
+          if (!fn) this.notImplemented(message)
+          else fn.apply(this, [message.parameters])
+        }
+      })
     })
   }
 
