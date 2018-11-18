@@ -18,7 +18,7 @@ class CabalIRC {
     if (!opts) opts = {}
     debug('Initializing core @', storage, 'with key:', key)
     this.cabal = Cabal(storage, key, opts)
-
+    this.joinedChannels = []
     this.hostname = opts.hostname || '127.0.0.1'
     this._user = null
     debug('Waiting for cabal.db.ready')
@@ -26,7 +26,8 @@ class CabalIRC {
       debug('ready received')
       if (!key) {
         this.cabal.getLocalKey((err, key) => {
-          log('New cabal instance created, public key:\ncabal://' +key)
+          log('Multifeed public key:')
+          log(`\t\x1b[34mcabal://${key}\x1b[0m\n`)
           this._onopen(opts)
         })
       } else {
@@ -37,6 +38,7 @@ class CabalIRC {
 
   // Before IRC client disconnects
   quit () {
+    this.joinedChannels = []
     this._user.socket.end()
   }
 
@@ -70,7 +72,10 @@ class CabalIRC {
   // cabal on 'message' event handler
   _messageAdd (msg) {
     debug('CAB:messag_glob', msg)
-    if (this._user) this._forceJoin(this._user)
+    // TODO: when receiving a message
+    // from a new channel we have to send 'join' command to the
+    // user.
+    this._echoMessage(msg)
   }
 
   // Writes a message to IRC client.
@@ -83,8 +88,17 @@ class CabalIRC {
 
     return new Promise((resolve, reject) => {
       this.cabal.users.get(message.key, (err, res) => {
-        if(err) return reject(err)
-        resolve(res)
+        if (!err) {
+          resolve(res)
+        } else if(err && err.type === 'NotFoundError') {
+          // This might be unecessary, but i think you
+          // but i think this error is caused when trying to look up
+          // user-info for a core that has never registered a nickname.
+          // Either way, if a lookup fails, it's handeled in next chain-link.
+          resolve()
+        } else {
+          log("Failed looking up user:\n", err)
+        }
       })
     })
     .then(uinfo => {
@@ -97,8 +111,11 @@ class CabalIRC {
     .then(from => {
       let channel = message.value.content.channel // What does a cabal private look like?
       let out = `:${from}!cabalist@${this.hostname} PRIVMSG #${channel} :${message.value.content.text}\r\n`
-      log(out)
+      // log(out)
       this._write(out)
+    })
+    .catch(err => {
+      log("Failed writing message to client:\n",err)
     })
   }
 
@@ -121,7 +138,7 @@ class CabalIRC {
           this._write(`:${this.hostname} ${Cmd.RPL_ENDOFNAMES} ${this._user.nick} #${channel} :End of /NAMES list.\r\n`)
         })
       })
-      .catch(err => log(err))
+      .catch(err => log("Failed joining channel\n", err))
   }
 
   _recapMessages () {
@@ -134,7 +151,7 @@ class CabalIRC {
           })
         })
       })
-      .catch(err => log(err))
+      .catch(err => log("Failed recapping messages:\n", err))
   }
 
   // Identity change and also Step 1 of IRC handshake
@@ -171,15 +188,14 @@ class CabalIRC {
     log(message)
   }
 
-  privmsg (parameters) {
-    /*this.cabal.publish({
+  privmsg ([channel, text]) {
+    channel = channel.replace(/^#/,'')
+    this.cabal.publish({
       type: 'chat/text',
-        content: {
-          text: 'hello world',
-            channel: 'cabal-dev'
-        }
-    })*/
-    log('PRIVMSG', parameters)
+      content: { text, channel }
+    },{}, (err, message) => {
+      if (err) log("Failed publishing message", err)
+    })
   }
 
 
@@ -213,7 +229,11 @@ class CabalIRC {
       this._write(`:${this.hostname} ${Cmd.RPL_LISTEND} ${this._user.nick} :End of /LIST"\r\n`)
     })
   }
-
+  cap (parameters) {
+    // We do not provide any extended capabilities that i know of.
+    // responding as instructed in:
+    this._write(`CAP * LIST :`)
+  }
   // The incoming connection handler
   listen (socket) {
     const user = {
