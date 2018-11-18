@@ -41,7 +41,6 @@ class CabalIRC {
     this.joinedChannels = []
     this._user.socket.end()
   }
-
   _write (data) {
     if (this._user && this._user.socket.writable) {
       this._user.socket.write(data)
@@ -59,17 +58,24 @@ class CabalIRC {
     this.cabal.on('peer-dropped', peer => log('CAB:peer_dropped', peer))
 
     // Register handler for new channels.
-    this.cabal.channels.events.on('add', channel => this._channelAdd(channel))
+    this.cabal.channels.events.on('add', channel => this._onChannelAdd(channel))
     // Register handler for new messages
-    this.cabal.messages.events.on('message', msg => this._messageAdd(msg))
+    this.cabal.messages.events.on('message', msg => this._onMessageAdd(msg))
+    // Register handler for topic changes
+    // this.cabal.topics.events.on('update', msg => this._onTopicUpdate)
   }
 
-  _channelAdd (channel) {
+  // Unused, topics seem to be emitted as regular messages on the cabal.message view.
+  _onTopicUpdate (msg) {
+    let topic = msg.value.content.topic
+  }
+
+  _onChannelAdd (channel) {
     if (this._user) this._joinChannel(this._user)
   }
 
   // cabal on 'message' event handler
-  _messageAdd (msg) {
+  _onMessageAdd (msg) {
     // Don't echo our own newly-published mmessages
     // (that's what recap takes care of)
     if (msg.key !== this.cabal.key) this._echoMessage(msg)
@@ -78,7 +84,8 @@ class CabalIRC {
   // Writes a message to IRC client.
   _echoMessage (message) {
     if (!this._user) return
-    if (message.value.type !== 'chat/text') {
+
+    if (['chat/text', 'chat/topic'].indexOf(message.value.type) === -1) {
       console.log('Unsupported message received', message)
       return
     }
@@ -113,7 +120,11 @@ class CabalIRC {
       }
     })
     .then(from => { // Write to socket.
-      this._write(`:${from}!cabalist@${this.hostname} PRIVMSG #${channel} :${message.value.content.text}\r\n`)
+      if (message.value.type === 'chat/text') {
+        this._write(`:${from}!cabalist@${this.hostname} PRIVMSG #${channel} :${message.value.content.text}\r\n`)
+      } else if (message.value.type === 'chat/topic') {
+        this._write(`:${from}!cabalist@${this.hostname} TOPIC #${channel} :${message.value.content.text}\r\n`)
+      }
     })
     .catch(err => {
       log("Failed writing message to client:\n",err)
@@ -309,6 +320,15 @@ class CabalIRC {
       return chain.then(() => this._joinChannel(channel))
     }, Promise.resolve())
   }
+
+  topic ([channel, topic]) {
+    channel = channel.replace(/^#/, '')
+    this.cabal.publishChannelTopic(channel, topic, (err) => {
+      if (err) throw err
+      this._write(`:${this.hostname} ${Cmd.RPL_TOPIC} ${this._user.nick} #${channel} :${topic}\r\n`)
+    })
+  }
+
   // The incoming connection handler
   listen (socket) {
     this.cabal.users.get(this.cabal.key, (err, nick) => {
