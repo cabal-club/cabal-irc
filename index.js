@@ -65,17 +65,14 @@ class CabalIRC {
   }
 
   _channelAdd (channel) {
-    debug('CAB:channel_add', channel)
-    if (this._user) this._forceJoin(this._user)
+    if (this._user) this._joinChannel(this._user)
   }
 
   // cabal on 'message' event handler
   _messageAdd (msg) {
-    debug('CAB:messag_glob', msg)
-    // TODO: when receiving a message
-    // from a new channel we have to send 'join' command to the
-    // user.
-    this._echoMessage(msg)
+    // Don't echo our own newly-published mmessages
+    // (that's what recap takes care of)
+    if (msg.key !== this.cabal.key) this._echoMessage(msg)
   }
 
   // Writes a message to IRC client.
@@ -175,9 +172,21 @@ class CabalIRC {
     return promisify(this.cabal.channels.get)()
       .then(channels => {
         channels.forEach(channel => {
-          let mio = this.cabal.messages.read(channel)
+          // TODO: Add relative filter to limit the amount
+          // of data that the recap will send.
+          // Or limit to message count but then we'll have to use
+          // the let messages = []; and messages.unshift() pattern
+          // again if we want support m-count limits.
+          let mio = this.cabal.messages.read(channel, {
+            reverse: false
+          })
           mio.on('data', message => {
             this._echoMessage(message)
+          })
+          mio.on('end', () => {
+            log('Recamp complete for', channel)
+            // TODO: maybe send a 'recap #channel complete from [DATE]' - message
+            // to client.
           })
         })
       })
@@ -191,8 +200,11 @@ class CabalIRC {
         log('Failed to publish nick\n', err)
         this.write(`:${this.hostname} ${Cmd.ERR_NICKNAMEINUSE} ${this._user.nick} ${nick} :${err.type}`)
       } else {
+        // Nick-change successfull.
         this._write(`:${this._user.nick}!cabalist@${this.hostname} NICK :${nick}\r\n`)
-        this._user.nick = nick // Nick update successful.
+        // So the nick-change message must specify :(old-nick!idstring) NICK :(new-nick)
+        // Thus were updating the _user object only after we've sent the command.
+        this._user.nick = nick
       }
     })
   }
