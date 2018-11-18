@@ -124,27 +124,33 @@ class CabalIRC {
    * and a complete list of all connected users. */
   _joinChannel (channel) {
     return new Promise((resolve, reject) => {
-      this.cabal.users.getAll((err, users)=>{
-        if (err) {
-          log('Failed fetchng userlist\n', err)
-          return reject(err)
-        }
+      this.cabal.topics.get(channel, (err, topic) => {
+        if (err && err.type === 'NotFoundError') {
+          topic = ''
+        } else if (err) throw err
 
-        // Some irc-clients rejoin on reconnection faster than
-        // our _forceJoin causing duplicate channel listings.
-        if (this.joinedChannels.indexOf(channel) !== -1) return resolve(false)
+        this.cabal.users.getAll((err, users)=>{
+          if (err) {
+            log('Failed fetchng userlist\n', err)
+            return reject(err)
+          }
 
-        this._write(`:${this._user.nick}!cabalist@${this.hostname} JOIN #${channel} \r\n`)
-        this._write(`:${this.hostname} ${Cmd.RPL_TOPIC} ${this._user.nick} #${channel} :TODO TOPIC\r\n`)
+          // Some irc-clients rejoin on reconnection faster than
+          // our _forceJoin causing duplicate channel listings.
+          if (this.joinedChannels.indexOf(channel) !== -1) return resolve(false)
 
-        // TODO: filter online
-        let nicks = Object.values(users)
-          .map(u => u.name || u.key.slice(0,10))
-          .join(' ')
+          this._write(`:${this._user.nick}!cabalist@${this.hostname} JOIN #${channel} \r\n`)
+          this._write(`:${this.hostname} ${Cmd.RPL_TOPIC} ${this._user.nick} #${channel} :${topic}\r\n`)
 
-        this._write(`:${this.hostname} ${Cmd.RPL_NAMREPLY} ${this._user.nick} = #${channel} :${nicks} \r\n`)
-        this._write(`:${this.hostname} ${Cmd.RPL_ENDOFNAMES} ${this._user.nick} #${channel} :End of /NAMES list.\r\n`)
-        resolve(true)
+          // TODO: filter online
+          let nicks = Object.values(users)
+            .map(u => u.name || u.key.slice(0,10))
+            .join(' ')
+
+          this._write(`:${this.hostname} ${Cmd.RPL_NAMREPLY} ${this._user.nick} = #${channel} :${nicks} \r\n`)
+          this._write(`:${this.hostname} ${Cmd.RPL_ENDOFNAMES} ${this._user.nick} #${channel} :End of /NAMES list.\r\n`)
+          resolve(true)
+        })
       })
     })
       .then((joined) => { // Mark channel as joined.
@@ -171,19 +177,32 @@ class CabalIRC {
   _recapMessages () {
     return promisify(this.cabal.channels.get)()
       .then(channels => {
+        // TODO: Move this opt, better place if useful
+        const mLimit = 100
+        let messages = []
+
         channels.forEach(channel => {
           // TODO: Add relative filter to limit the amount
           // of data that the recap will send.
           // Or limit to message count but then we'll have to use
           // the let messages = []; and messages.unshift() pattern
           // again if we want support m-count limits.
+
+
           let mio = this.cabal.messages.read(channel, {
-            reverse: false
+            reverse: mLimit > 0 // (Count the limit from the newest messages)
           })
+
           mio.on('data', message => {
-            this._echoMessage(message)
+            if(mLimit > 0 && messages.length < mLimit) {
+              messages.unshift(message)
+            } else {
+              this._echoMessage(message)
+            }
           })
+
           mio.on('end', () => {
+            messages.forEach(m => this._echoMessage(m))
             log('Recamp complete for', channel)
             // TODO: maybe send a 'recap #channel complete from [DATE]' - message
             // to client. I haven't figured out if there is a way to pass the real
