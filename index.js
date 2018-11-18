@@ -85,60 +85,85 @@ class CabalIRC {
       console.log('Unsupported message received', message)
       return
     }
-
-    return new Promise((resolve, reject) => {
-      this.cabal.users.get(message.key, (err, res) => {
-        if (!err) {
-          resolve(res)
-        } else if(err && err.type === 'NotFoundError') {
-          // This might be unecessary, but i think you
-          // but i think this error is caused when trying to look up
-          // user-info for a core that has never registered a nickname.
-          // Either way, if a lookup fails, it's handeled in next chain-link.
-          resolve()
-        } else {
-          log("Failed looking up user:\n", err)
-        }
+    let channel = message.value.content.channel
+    // use internal joinedChannels register to figure out if this channel is previously
+    // known to the irc-client;
+    return Promise.resolve(this.joinedChannels.indexOf(channel) !== -1)
+      .then((isKnown) => { //  if not then send them a join before the message.
+        if (!isKnown) return this._joinChannel(channel)
       })
-    })
-    .then(uinfo => {
+      .then(() => { // WHOIS core
+        return new Promise((resolve, reject) => {
+          this.cabal.users.get(message.key, (err, res) => {
+            if (!err) {
+              resolve(res)
+            } else if(err && err.type === 'NotFoundError') {
+              // I think this error is caused when trying to look up
+              // user-info for a core that has never registered a nickname.
+              // Either way, if a lookup fails, it's handeled in next chain-link.
+              resolve()
+            } else {
+              log("Failed looking up user:\n", err)
+            }
+          })
+        })
+      })
+    .then(uinfo => { // Extract Nickname.
       if (uinfo) {
         return uinfo.name
       } else {
         return message.key.slice(0,10) // Gain some readability at the cost of entropy.
       }
     })
-    .then(from => {
-      let channel = message.value.content.channel // What does a cabal private look like?
-      let out = `:${from}!cabalist@${this.hostname} PRIVMSG #${channel} :${message.value.content.text}\r\n`
-      // log(out)
-      this._write(out)
+    .then(from => { // Write to socket.
+      this._write(`:${from}!cabalist@${this.hostname} PRIVMSG #${channel} :${message.value.content.text}\r\n`)
     })
     .catch(err => {
       log("Failed writing message to client:\n",err)
     })
   }
 
+  /* Sends the 'join' channel commands to the client
+   * and a complete list of all connected users. */
+  _joinChannel (channel) {
+    return new Promise((resolve, reject) => {
+      this.cabal.users.getAll((err, users)=>{
+        if (err) {
+          log('Failed fetchng userlist\n', err)
+          return reject(err)
+        }
+
+        this._write(`:${this._user.nick}!cabalist@${this.hostname} JOIN #${channel} \r\n`)
+        this._write(`:${this.hostname} ${Cmd.RPL_TOPIC} ${this._user.nick} #${channel} :TODO TOPIC\r\n`)
+
+        // TODO: filter online
+        let nicks = Object.values(users)
+          .map(u => u.name || u.key.slice(0,10))
+          .join(' ')
+
+        this._write(`:${this.hostname} ${Cmd.RPL_NAMREPLY} ${this._user.nick} = #${channel} :${nicks} \r\n`)
+        this._write(`:${this.hostname} ${Cmd.RPL_ENDOFNAMES} ${this._user.nick} #${channel} :End of /NAMES list.\r\n`)
+        resolve()
+      })
+    })
+      .then(() => { // Mark channel as joined.
+        this.joinedChannels.push(channel)
+      })
+      .catch(err => log(`Failed joining channel ${channel}\n`, err))
+  }
+
   // Forces connected client to join all available channels since from what
   // I can see, cabal does not support subscription to individual channels yet.
   _forceJoin () {
-    return Promise.all([
-      // All users are on all channels.
-      promisify(this.cabal.users.getAll)(),
-      promisify(this.cabal.channels.get)()
-    ])
-      .then(([users, channels]) =>  {
-        channels.forEach(channel => {
-          this._write(`:${this._user.nick}!cabalist@${this.hostname} JOIN #${channel} \r\n`)
-          this._write(`:${this.hostname} ${Cmd.RPL_TOPIC} ${this._user.nick} #${channel} :TODO TOPIC\r\n`)
-          let nicks = Object.values(users)
-            .map(u => u.name || u.key.substr(0,8))
-            .join(' ')
-          this._write(`:${this.hostname} ${Cmd.RPL_NAMREPLY} ${this._user.nick} = #${channel} :${nicks} \r\n`)
-          this._write(`:${this.hostname} ${Cmd.RPL_ENDOFNAMES} ${this._user.nick} #${channel} :End of /NAMES list.\r\n`)
-        })
+    return promisify(this.cabal.channels.get)()
+      .then(channels => {
+        return channels.reduce((chain, channel) => {
+          chain.then(() => {
+            return this._joinChannel(channel)
+          })
+        }, Promise.resolve())
       })
-      .catch(err => log("Failed joining channel\n", err))
+      .catch(err => log('Failed during _forceJoin\n', err))
   }
 
   _recapMessages () {
@@ -176,7 +201,7 @@ class CabalIRC {
     this._write(`:${this.hostname} ${Cmd.RPL_MOTD} ${this._user.nick} :- on the decentralized Cabal network      -\r\n`)
     this._write(`:${this.hostname} ${Cmd.RPL_ENDOFMOTD} ${this._user.nick} :End of MOTD command\r\n`)
     this._forceJoin()
-      .then(() => new Promise(done => setTimeout(done, 1000)))
+      .then(() => new Promise(done => setTimeout(done, 1000))) // Let the client catch it's breath before recap.
       .then(() => this._recapMessages())
   }
 
