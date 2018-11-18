@@ -21,6 +21,7 @@ class CabalIRC {
     this.joinedChannels = []
     this.hostname = opts.hostname || '127.0.0.1'
     this._user = null
+    this.connectedPeers = {}
     debug('Waiting for cabal.db.ready')
     this.cabal.db.feed((feed) => {
       debug('ready received')
@@ -54,8 +55,9 @@ class CabalIRC {
       this.swarm = Swarm(this.cabal)
     } else debug('Running offline-mode, not joining the swarm')
 
-    this.cabal.on('peer-added', peer => log('CAB:peer_added', peer))
-    this.cabal.on('peer-dropped', peer => log('CAB:peer_dropped', peer))
+    // Keep a copy of which peers are connected.
+    this.cabal.on('peer-added', peer => this._onPeerConnectionChange(peer, true))
+    this.cabal.on('peer-dropped', peer => this._onPeerConnectionChange(peer, false))
 
     // Register handler for new channels.
     this.cabal.channels.events.on('add', channel => this._onChannelAdd(channel))
@@ -65,10 +67,28 @@ class CabalIRC {
     // this.cabal.topics.events.on('update', msg => this._onTopicUpdate)
   }
 
+  _onPeerConnectionChange (key, connected) {
+    if (connected) log('Peer connected: ', key)
+    if (!connected) log('Peer disconnected: ', key)
+
+    this.connectedPeers[key] = true
+    this.cabal.users.get(key, (err, uinfo) => {
+      let nick = uinfo ? uinfo.name : key.slice(0, 10)
+      this.cabal.channels.get((err, channels) => {
+        if(err || !channels) throw 'Failed fetching channels'
+        channels.forEach(channel => {
+          this._write(`:${this.hostname} MODE #${channel} ${connected ? '+' : '-'}v ${nick}\r\n`)
+        })
+      })
+    })
+  }
+
   // Unused, topics seem to be emitted as regular messages on the cabal.message view.
+  // Keeping it until If topics in message-stream is a bug or by design.
+  /*
   _onTopicUpdate (msg) {
     let topic = msg.value.content.topic
-  }
+  }*/
 
   _onChannelAdd (channel) {
     if (this._user) this._joinChannel(this._user)
@@ -151,11 +171,15 @@ class CabalIRC {
           if (this.joinedChannels.indexOf(channel) !== -1) return resolve(false)
 
           this._write(`:${this._user.nick}!cabalist@${this.hostname} JOIN #${channel} \r\n`)
+          this._write(`:${this.hostname} MODE #${channel} +v ${this._user.nick}\r\n`)
           this._write(`:${this.hostname} ${Cmd.RPL_TOPIC} ${this._user.nick} #${channel} :${topic}\r\n`)
 
-          // TODO: filter online
           let nicks = Object.values(users)
-            .map(u => u.name || u.key.slice(0,10))
+            .map(u => {
+              let nick = u.name || u.key.slice(0,10)
+              let v = this.connectedPeers[u.key] ? '+' : ''
+              return v + nick
+            })
             .join(' ')
 
           this._write(`:${this.hostname} ${Cmd.RPL_NAMREPLY} ${this._user.nick} = #${channel} :${nicks} \r\n`)
@@ -214,7 +238,7 @@ class CabalIRC {
 
           mio.on('end', () => {
             messages.forEach(m => this._echoMessage(m))
-            log('Recamp complete for', channel)
+            log('Recap complete for', channel)
             // TODO: maybe send a 'recap #channel complete from [DATE]' - message
             // to client. I haven't figured out if there is a way to pass the real
             // timestamps in the irc-protocol.
@@ -226,7 +250,24 @@ class CabalIRC {
 
   // Identity change and also Step 1 of IRC handshake
   nick ([nick]) {
-    this.cabal.publishNick(nick, (err) => {
+    new Promise((resolve) => {
+      this.cabal.users.get(this.cabal.key, (err, uinfo) => {
+        if (uinfo) resolve(uinfo.name)
+        else resolve(null)
+      })
+    })
+    .then((currentNick) => {
+      // Make sure that the nick actually is different before
+      // publishing a change.
+      if (currentNick !== nick) {
+        return new Promise(resolve => {
+          this.cabal.publishNick(nick, (err) => resolve(err))
+        })
+      } else {
+        return null
+      }
+    })
+    .then(err => {
       if (err) {
         log('Failed to publish nick\n', err)
         this.write(`:${this.hostname} ${Cmd.ERR_NICKNAMEINUSE} ${this._user.nick} ${nick} :${err.type}`)
@@ -238,6 +279,7 @@ class CabalIRC {
         this._user.nick = nick
       }
     })
+    .catch(err => log(err))
   }
 
   // Step 2 of IRC handshake
@@ -290,9 +332,9 @@ class CabalIRC {
   }
 
   mode (parameters) {
-    // Pacifier/Dummy always returns +ns modes to the client.
+    // Pacifier/Dummy always returns +vns modes to the client.
     let channel = parameters[0]
-    this._write(`:${this.hostname} ${Cmd.RPL_UMODEIS} #${channel} +ns\r\n`)
+    this._write(`:${this.hostname} ${Cmd.RPL_UMODEIS} #${channel} +nsv\r\n`)
   }
 
 
@@ -357,6 +399,9 @@ class CabalIRC {
       parser.on('readable', () => {
         let message
         while ((message = parser.read()) !== null) {
+          if (!message.command && message.parameters[0] === 'disconnect') {
+            return // XChat quits this way :S
+          }
           let cmd = message.command.toLowerCase()
           // log(message)
           let fn = this[cmd]

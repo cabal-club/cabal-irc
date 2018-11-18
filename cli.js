@@ -32,7 +32,7 @@ const cabal = new CabalIRC(db, key, argv)
 // Create and bind tcp-server
 var server = net.createServer(function (socket) {
   cabal.listen(socket)
-  console.log('CONNECTION', socket.remoteAddress, socket.remotePort)
+  console.log('Irc client-connected', socket.remoteAddress, socket.remotePort)
 })
 
 server.listen(6667, '127.0.0.1', function () {
