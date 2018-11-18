@@ -24,7 +24,7 @@
   },
   "homepage": "https://github.com/cabal-club/cabal-irc#readme",
   "dependencies": {
-    "cabal-core": "^4.0.0",
+    "cabal-core": "file:../cabal-core",
     "irc-protocol": "^1.0.1",
     "irc-upd": "^0.10.0",
     "minimist": "^1.2.0"

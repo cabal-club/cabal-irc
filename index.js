@@ -186,7 +186,8 @@ class CabalIRC {
           mio.on('end', () => {
             log('Recamp complete for', channel)
             // TODO: maybe send a 'recap #channel complete from [DATE]' - message
-            // to client.
+            // to client. I haven't figured out if there is a way to pass the real
+            // timestamps in the irc-protocol.
           })
         })
       })
