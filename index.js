@@ -117,11 +117,20 @@ class CabalIRC {
       return
     }
     let channel = message.value.content.channel
-    // use internal joinedChannels register to figure out if this channel is previously
-    // known to the irc-client;
-    return Promise.resolve(this.joinedChannels.indexOf(channel) !== -1)
-      .then((isKnown) => { //  if not then send them a join before the message.
-        if (!isKnown) return this._joinChannel(channel)
+
+    // OK, new logic, when the current user is mentioned in a message
+    // then he will be summoned to that channel.
+    // otherwise respect the IRC-client subscriptions (join/parameters)
+    let isSubscribed = this.joinedChannels.indexOf(channel) !== -1
+    let isMention = !!message.value.content.text.match(this.user.nick)
+    // use internal joinedChannels register to figure out if the client
+    // is subscribing to this channel, if not then skip the message
+    // they can always use !recap
+    if(!isMention && !isSubscribed) return
+
+    return Promise.resolve()
+      .then(() => { //  if not then send them a join before the message.
+        if (!isSubscribed) return this._joinChannel(channel)
       })
       .then(() => { // WHOIS core
         return new Promise((resolve, reject) => {
@@ -222,14 +231,19 @@ class CabalIRC {
     this._write(`:cabbot!CabalBot@services NOTICE ${this._user.nick} :${text}\r\n`)
   }
 
-  _recapMessages () {
-    return promisify(this.cabal.channels.get)()
+  _recapMessages (channels) {
+    const mLimit = 100
+    if (typeof channels === 'string') channels = [channels]
+
+    return Promise.resolve(channels)
       .then(channels => {
-        // TODO: Move this opt, better place if useful
-        const mLimit = 100
-        let messages = []
+        if (channels.length == 0) return promisify(this.cabal.channels.get)()
+        return channels
+      })
+      .then(channels => {
 
         channels.forEach(channel => {
+          let messages = []
           // TODO: Add relative filter to limit the amount
           // of data that the recap will send.
           // Or limit to message count but then we'll have to use
@@ -252,6 +266,7 @@ class CabalIRC {
           mio.on('end', () => {
             messages.forEach(m => this._echoMessage(m))
             log('Recap complete for', channel)
+            this._notice(`Recap #${channel} complete`)
             // TODO: maybe send a 'recap #channel complete from [DATE]' - message
             // to client. I haven't figured out if there is a way to pass the real
             // timestamps in the irc-protocol.
@@ -332,8 +347,9 @@ class CabalIRC {
       }
       this._notice('Available channels:')
       channels.forEach(channel => {
-        this._notice(`  ${channel}`)
+        this._notice(`  #${channel}`)
       })
+      this._notice("Once you've joined a channel, use command '!recap' to load history")
     })
   }
 
@@ -351,6 +367,10 @@ class CabalIRC {
 
   privmsg ([channel, text]) {
     channel = channel.replace(/^#/,'')
+
+    // Manual chat-log recap through !recap message on channel
+    if (text.match(/^!recap/)) return this._recapMessages(channel)
+
     let type = 'chat/text'
     if (text.match(/^\x01ACTION/)) {
       type = 'chat/emote'
