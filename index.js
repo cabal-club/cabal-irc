@@ -3,6 +3,8 @@ const Cabal = require('cabal-core')
 const Swarm = require('cabal-core/swarm.js')
 const {readFileSync} = require('fs')
 const {promisify} = require('util')
+const log = require('debug')('ircd')
+const debug = log.extend('debug')
 
 // Expose all IRC numerics as lookup maps:
 // Cmd with format:         { command: number }
@@ -216,6 +218,10 @@ class CabalIRC {
       .catch(err => log('Failed during _forceJoin\n', err))
   }
 
+  _notice (text) {
+    this._write(`:CabBot!Cabal-Bot@services NOTICE ${this._user.nick} :${text}\r\n`)
+  }
+
   _recapMessages () {
     return promisify(this.cabal.channels.get)()
       .then(channels => {
@@ -293,18 +299,38 @@ class CabalIRC {
   user (parameters) {
     this._user.username = parameters[0]
     this._user.realname = parameters[3]
+
     // Send welcome
     this._write(`:${this.hostname} ${Cmd.WELCOME} ${this._user.nick} :Welcome to cabal!\r\n`)
-    // Send motd
+
+    // Send motd from textfile
     let motdtxt = readFileSync('./motd.txt').toString()
     this._write(`:${this.hostname} ${Cmd.RPL_MOTDSTART} ${this._user.nick} :- ${this.hostname} Message of the day - \r\n`)
     motdtxt.split("\n").forEach(line => {
       this._write(`:${this.hostname} ${Cmd.RPL_MOTD} ${this._user.nick} :${line}\r\n`)
     })
     this._write(`:${this.hostname} ${Cmd.RPL_ENDOFMOTD} ${this._user.nick} :End of MOTD command\r\n`)
-    this._forceJoin()
-      .then(() => new Promise(done => setTimeout(done, 1000))) // Let the client catch it's breath before recap.
-      .then(() => this._recapMessages())
+
+    // I'm starting to suspect that forcejoining is a bad idea.
+    // most irc-clients have auto-joining previous channel as a built-in feature.
+    // Also If you accidentally have 2 irc-clients with auto-reconnect and both trying to connect
+    // to the same bouncer instance with force-join activated then you're in for a ride..
+    /* this._forceJoin()
+        .then(() => new Promise(done => setTimeout(done, 1000))) // Let the client catch it's breath before recap.
+        .then(() => this._recapMessages())
+        */
+
+    // Send a list of known channels to client
+    this.cabal.channels.get((err, channels) => {
+      if (err) {
+        log(err)
+        channels = []
+      }
+      this._notice('Available channels:')
+      channels.forEach(channel => {
+        this._notice(`  ${channel}`)
+      })
+    })
   }
 
   ping (parameters) {
@@ -438,17 +464,3 @@ class CabalIRC {
 
 module.exports = CabalIRC
 
-// methodize the logging.
-let log = function (...args) {
-  let t = new Date()
-  let timestamp = [t.getHours(), t.getMinutes(), t.getSeconds()]
-    .map(i=> i.toString().padStart(2,'0'))
-    .join(':')
-  console.log.apply(null,[timestamp, ...args])
-}
-
-let debug = function (...args) {
-  if (process.env['DEBUG']) {
-    console.debug.apply(null, ['DEBUG:',...args])
-  }
-}
