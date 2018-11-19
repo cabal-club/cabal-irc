@@ -1,6 +1,7 @@
 const Protocol = require('irc-protocol')
 const Cabal = require('cabal-core')
 const Swarm = require('cabal-core/swarm.js')
+const {readFileSync} = require('fs')
 const {promisify} = require('util')
 
 // Expose all IRC numerics as lookup maps:
@@ -289,11 +290,11 @@ class CabalIRC {
     // Send welcome
     this._write(`:${this.hostname} ${Cmd.WELCOME} ${this._user.nick} :Welcome to cabal!\r\n`)
     // Send motd
+    let motdtxt = readFileSync('./motd.txt').toString()
     this._write(`:${this.hostname} ${Cmd.RPL_MOTDSTART} ${this._user.nick} :- ${this.hostname} Message of the day - \r\n`)
-    // TODO: use a plaintext file instead and loop-send each line.
-    this._write(`:${this.hostname} ${Cmd.RPL_MOTD} ${this._user.nick} :- Cabal-irc gateway                       -\r\n`)
-    this._write(`:${this.hostname} ${Cmd.RPL_MOTD} ${this._user.nick} :- Enjoy using your favourite IRC-software -\r\n`)
-    this._write(`:${this.hostname} ${Cmd.RPL_MOTD} ${this._user.nick} :- on the decentralized Cabal network      -\r\n`)
+    motdtxt.split("\n").forEach(line => {
+      this._write(`:${this.hostname} ${Cmd.RPL_MOTD} ${this._user.nick} :${line}\r\n`)
+    })
     this._write(`:${this.hostname} ${Cmd.RPL_ENDOFMOTD} ${this._user.nick} :End of MOTD command\r\n`)
     this._forceJoin()
       .then(() => new Promise(done => setTimeout(done, 1000))) // Let the client catch it's breath before recap.
