@@ -4,6 +4,9 @@ const Swarm = require('cabal-core/swarm.js')
 const {readFileSync} = require('fs')
 const {promisify} = require('util')
 const log = require('debug')('ircd')
+
+log.enabled = true
+
 const debug = log.extend('debug')
 // Expose all IRC numerics as lookup maps:
 // Cmd with format:         { command: number }
@@ -388,9 +391,8 @@ class CabalIRC {
     log('Client ERROR cmd received', parameters)
   }
 
-  whois (parameters) {
-    let nick = parameters[0]
-    return
+  whois ([nick]) {
+    return // TODO: Implement whois.
     let target = this.users[nick]
     if (!target) {
       this._write(`:${this.hostname} ${Cmd.ERR_NOSUCHNICK} ` + this._user.nick + ` ` + nick + ` :No such nick/channel\r\n`)
@@ -408,14 +410,24 @@ class CabalIRC {
 
 
   list (parameters) {
-    this.cabal.channels.get((err, channels) => {
-      this._write(`:${this.hostname} ${Cmd.RPL_LISTSTART} ${this._user.nick} Channel :Users  Name\r\n`)
-      channels
-        .map(ch => ({name: ch, users: '-1', topic: ''}))
-        .forEach(channel => {
-        this._write(`:${this.hostname} ${Cmd.RPL_LIST} ${this._user.nick} #${channel.name} ${channel.users} :${channel.topic}\r\n`)
+    return new Promise((resolve) => {
+      this.cabal.users.getAll((err, users) => {
+        if (err) resolve(-1)
+        else resolve(Object.keys(users).length)
       })
-      this._write(`:${this.hostname} ${Cmd.RPL_LISTEND} ${this._user.nick} :End of /LIST"\r\n`)
+    })
+    .then(userCount => {
+      this.cabal.channels.get((err, channels) => {
+        // TODO: move the map below into a separate promise-chain-link
+        // and also resolve the topic for each channel.
+        this._write(`:${this.hostname} ${Cmd.RPL_LISTSTART} ${this._user.nick} Channel :Users  Name\r\n`)
+        channels
+          .map(ch => ({name: ch, users: userCount, topic: ''}))
+          .forEach(channel => {
+            this._write(`:${this.hostname} ${Cmd.RPL_LIST} ${this._user.nick} #${channel.name} ${channel.users} :${channel.topic}\r\n`)
+          })
+        this._write(`:${this.hostname} ${Cmd.RPL_LISTEND} ${this._user.nick} :End of /LIST"\r\n`)
+      })
     })
   }
   cap (parameters) {
