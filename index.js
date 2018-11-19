@@ -106,7 +106,11 @@ class CabalIRC {
   _echoMessage (message) {
     if (!this._user) return
 
-    if (['chat/text', 'chat/topic'].indexOf(message.value.type) === -1) {
+    if ([
+      'chat/text',
+      'chat/topic',
+      'chat/emote'
+    ].indexOf(message.value.type) === -1) {
       console.log('Unsupported message received', message)
       return
     }
@@ -145,6 +149,8 @@ class CabalIRC {
         this._write(`:${from}!cabalist@${this.hostname} PRIVMSG #${channel} :${message.value.content.text}\r\n`)
       } else if (message.value.type === 'chat/topic') {
         this._write(`:${from}!cabalist@${this.hostname} TOPIC #${channel} :${message.value.content.text}\r\n`)
+      } else if (message.value.type === 'chat/emote') {
+        this._write(`:${from}!cabalist@${this.hostname} PRIVMSG #${channel} :\x01ACTION ${message.value.content.text}\r\n`)
       }
     })
     .catch(err => {
@@ -306,19 +312,28 @@ class CabalIRC {
   }
 
   part (message) {
+    // TODO: make channels-opt in instead of forced-join.
     log(message)
   }
 
   privmsg ([channel, text]) {
     channel = channel.replace(/^#/,'')
+    let type = 'chat/text'
+    if (text.match(/^\x01ACTION/)) {
+      type = 'chat/emote'
+      text = text.replace(/^\x01ACTION/, '')
+    }
     this.cabal.publish({
-      type: 'chat/text',
+      type,
       content: { text, channel }
     },{}, (err, message) => {
       if (err) log("Failed publishing message", err)
     })
   }
 
+  error (parameters) {
+    log('Client ERROR cmd received', parameters)
+  }
 
   whois (parameters) {
     let nick = parameters[0]
@@ -403,6 +418,7 @@ class CabalIRC {
           if (!message.command && message.parameters[0] === 'disconnect') {
             return // XChat quits this way :S
           }
+
           let cmd = message.command.toLowerCase()
           // log(message)
           let fn = this[cmd]

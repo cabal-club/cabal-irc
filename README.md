@@ -1,7 +1,7 @@
 # cabal-irc
 
-This is a cabal-irc-bouncer, It let's you connect to
-the cabal network whichever irc-client you prefer.
+This is an cabal-irc-bouncer, It let's you connect to
+the cabal p2p network using whichever irc-client you prefer.
 
 Usage:
 
