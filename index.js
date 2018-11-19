@@ -5,7 +5,6 @@ const {readFileSync} = require('fs')
 const {promisify} = require('util')
 const log = require('debug')('ircd')
 const debug = log.extend('debug')
-
 // Expose all IRC numerics as lookup maps:
 // Cmd with format:         { command: number }
 const Cmd = ((numerics) => {
@@ -16,13 +15,14 @@ const Cmd = ((numerics) => {
   }, {})
 })(require('irc-protocol/numerics'))
 
+
 class CabalIRC {
   constructor (storage, key, opts) {
     if (!opts) opts = {}
     debug('Initializing core @', storage, 'with key:', key)
     this.cabal = Cabal(storage, key, opts)
     this.joinedChannels = []
-    this.hostname = opts.hostname || '127.0.0.1'
+    this.hostname = 'cabal-irc'
     this._user = null
     this.connectedPeers = {}
     debug('Waiting for cabal.db.ready')
@@ -219,7 +219,7 @@ class CabalIRC {
   }
 
   _notice (text) {
-    this._write(`:CabBot!Cabal-Bot@services NOTICE ${this._user.nick} :${text}\r\n`)
+    this._write(`:cabbot!CabalBot@services NOTICE ${this._user.nick} :${text}\r\n`)
   }
 
   _recapMessages () {
@@ -306,9 +306,13 @@ class CabalIRC {
     // Send motd from textfile
     let motdtxt = readFileSync('./motd.txt').toString()
     this._write(`:${this.hostname} ${Cmd.RPL_MOTDSTART} ${this._user.nick} :- ${this.hostname} Message of the day - \r\n`)
-    motdtxt.split("\n").forEach(line => {
+
+    motdtxt
+      .split("\n")
+      .forEach(line => {
       this._write(`:${this.hostname} ${Cmd.RPL_MOTD} ${this._user.nick} :${line}\r\n`)
     })
+
     this._write(`:${this.hostname} ${Cmd.RPL_ENDOFMOTD} ${this._user.nick} :End of MOTD command\r\n`)
 
     // I'm starting to suspect that forcejoining is a bad idea.
@@ -337,9 +341,12 @@ class CabalIRC {
     this._write(`:${this.hostname} PONG ${this.hostname} :` + parameters[0] + '\r\n')
   }
 
-  part (message) {
-    // TODO: make channels-opt in instead of forced-join.
-    log(message)
+  part ([channel]) {
+    // Was really tempted to left this unimplemented with a message:
+    // "There's no parting once you've joined the cabal"
+    // But turns out that irc-clients get a bit grumpy if you don't respond
+    // properly to a PART command.
+    this._write(`:${this._user.nick}!cabalist@${this.hostname} PART ${channel}\r\n`)
   }
 
   privmsg ([channel, text]) {
