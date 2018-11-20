@@ -400,14 +400,50 @@ class CabalIRC {
   }
 
   whois ([nick]) {
-    return // TODO: Implement whois.
-    let target = this.users[nick]
-    if (!target) {
-      this._write(`:${this.hostname} ${Cmd.ERR_NOSUCHNICK} ` + this._user.nick + ` ` + nick + ` :No such nick/channel\r\n`)
-      return
-    }
-    this._write(`:${this.hostname} ${Cmd.RPL_WHOISUSER} ` + this._user.nick + ` ` + target.nick + ` ` + target.username + ` fakeaddr * :` + target.realname + `\r\n`)
-    this._write(`:${this.hostname} ${Cmd.RPL_ENDOFWHOIS} ` + this._user.nick + ` :End of WHOIS list\r\n`)
+    // Respond with /WHOIS me, if irc-client sends empty paramter.
+    if (!nick) nick = this._user.nick
+
+    // List all known keys
+    return new Promise((resolve) => {
+      this.cabal.users.getAll((err, users) => {
+        if (err) resolve([])
+        else resolve(users)
+      })
+    })
+    // map keys to user-objects
+      .then(users => {
+        return Promise.all(Object.keys(users).map(key => {
+          return new Promise(resolve => {
+            this.cabal.users.get(key, (err, uinfo) => {
+              if (err) resolve()
+              else resolve(Object.assign(uinfo, {key}))
+            })
+          })
+        }))
+      })
+    // Find specific user-object
+      .then(infos => {
+        return infos.find(info => info.name === nick)
+      })
+    // Respond to the client
+      .then(target => {
+        // TODO: add support for whois on channel.
+        if (!target) {
+          this._write(`:${this.hostname} ${Cmd.ERR_NOSUCHNICK} ${this._user.nick} ${nick} :No such nick/channel\r\n`)
+        } else {
+          this._write(`:${this.hostname} ${Cmd.RPL_WHOISUSER} ${this._user.nick} ${nick} ~cabalist ${target.key} * :${nick}\r\n`)
+          /* TODO: create timestamps for connections and calulate values.
+          let idle = <amount of time since last feed-entry for that user>
+          let signonTime = <timestamp from when we received the connection>
+          if (signonTime > 0) {
+            this._write(`:${this.hostname} ${Cmd.RPL_WHOISIDLE} ${this._user.nick} ${nick} ${idle} ${signonTime} :seconds idle, signon time\r\n`)
+          } else {
+            this._write(`:${this.hostname} ${Cmd.RPL_WHOISIDLE} ${this._user.nick} ${nick} ${idle} :seconds idle\r\n`)
+          }
+          */
+          this._write(`:${this.hostname} ${Cmd.RPL_ENDOFWHOIS} ${this._user.nick} ${nick} :End of WHOIS list\r\n`)
+        }
+      })
   }
 
   mode (parameters) {

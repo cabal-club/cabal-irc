@@ -21,11 +21,16 @@ test ('Seed the feed', t => {
   t.plan(0)
   seedFeed(bnc).then(t.end())
 })
-
-const port = 6667
+const port = 30000 + Math.floor(Math.random()*1000)
 const host = '127.0.0.1'
 const nickname = 'joebob'
 const channels = ['#default']
+function spawnClient () {
+  return new irc.Client(host, nickname, {
+    channels,
+    port
+  })
+}
 
 server.listen(port, host, () => {
 
@@ -33,11 +38,25 @@ server.listen(port, host, () => {
     t.end()
   })
 
+
+  test('Whois', function (t) {
+    t.plan(3)
+    let client = spawnClient()
+    client.on('whois', (info) => {
+      t.equal(info.nick, nickname)
+      t.equal(info.user, "~cabalist")
+      t.ok(info.host.match(/^[0-9a-f]{64}$/), 'host is a 64-char hex-string (pub key)')
+      client.disconnect()
+      t.end()
+    })
+    client.whois(nickname)
+  })
+
   test ('message recap', t => {
     t.plan(6)
-    let client = new irc.Client(host, nickname)
+    let client = spawnClient()
     let i = 0
-    client.on('message', (from, to, msg) => {
+    client.on('message', (info, to, msg) => {
       t.comment(`${from}, ${to}, ${msg}`)
       t.equal(from, bnc.cabal.key)
       t.equal(to, seedMessages[i].content.channel)
@@ -48,11 +67,13 @@ server.listen(port, host, () => {
         t.end()
       }
     })
+    client.say('!recap')
   })
+
 
   test ('Server sends MOTD', t => {
     t.plan(1)
-    let client = new irc.Client(host, nickname)
+    let client = spawnClient()
     client.on('motd', motd => {
       t.ok(motd, 'MOTD received')
       client.disconnect()
@@ -62,7 +83,7 @@ server.listen(port, host, () => {
 
   test ('List channels', t => {
     t.plan(1)
-    let client = new irc.Client(host, nickname)
+    let client = spawnClient()
     client.list()
     client.on('channellist', list => {
       t.ok(list, 'channel list received')
@@ -74,7 +95,7 @@ server.listen(port, host, () => {
 
   test('Send Message', function (t) {
     t.plan(2)
-    let client = new irc.Client(host, nickname)
+    let client = spawnClient()
     client.on('message', (to, from, message) => {
       t.equal(to, '#default')
       t.equal(message, 'Im a bot!')
