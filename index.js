@@ -1,6 +1,7 @@
 const Protocol = require('irc-protocol')
 const Cabal = require('cabal-core')
 const Swarm = require('cabal-core/swarm.js')
+const path = require('path')
 const {readFileSync} = require('fs')
 const {promisify} = require('util')
 const log = require('debug')('ircd')
@@ -329,7 +330,7 @@ class CabalIRC {
     this._write(`:${this.hostname} ${Cmd.WELCOME} ${this._user.nick} :Welcome to cabal!\r\n`)
 
     // Send motd from textfile
-    let motdtxt = readFileSync('./motd.txt').toString()
+    let motdtxt = readFileSync(path.join(__dirname, 'motd.txt')).toString()
     this._write(`:${this.hostname} ${Cmd.RPL_MOTDSTART} ${this._user.nick} :- ${this.hostname} Message of the day - \r\n`)
 
     motdtxt
