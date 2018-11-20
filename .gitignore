@@ -59,3 +59,7 @@ typings/
 
 # next.js build output
 .next
+
+# Changes too much to be worth using right now when
+# our dependencies are exprimental.
+package-lock.json
