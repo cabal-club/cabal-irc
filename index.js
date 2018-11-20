@@ -90,7 +90,7 @@ class CabalIRC {
   }
 
   // Unused, topics seem to be emitted as regular messages on the cabal.message view.
-  // Keeping it until If topics in message-stream is a bug or by design.
+  // Keeping it until i know if topics in message-stream is a bug or a feature.
   /*
   _onTopicUpdate (msg) {
     let topic = msg.value.content.topic
@@ -102,9 +102,13 @@ class CabalIRC {
 
   // cabal on 'message' event handler
   _onMessageAdd (msg) {
-    // Don't echo our own newly-published mmessages
-    // (that's what recap takes care of)
-    if (msg.key !== this.cabal.key) this._echoMessage(msg)
+    // TODO: The local-peer key will most likely never change after startup.
+    // So no need to fetch it for every message, can probably be safely cached.
+    this.cabal.getLocalKey((err, key ) => {
+      // Don't echo our own newly-published mmessages
+      // (that's what recap takes care of)
+      if (msg.key !== key) this._echoMessage(msg)
+    })
   }
 
   // Writes a message to IRC client.
@@ -119,6 +123,7 @@ class CabalIRC {
       console.log('Unsupported message received', message)
       return
     }
+
     let channel = message.value.content.channel
 
     // OK, new logic, when the current user is mentioned in a message
@@ -159,6 +164,8 @@ class CabalIRC {
       }
     })
     .then(from => { // Write to socket.
+      debug(from, message.value.content.text, message.key)
+
       if (message.value.type === 'chat/text') {
         this._write(`:${from}!cabalist@${this.hostname} PRIVMSG #${channel} :${message.value.content.text}\r\n`)
       } else if (message.value.type === 'chat/topic') {
@@ -432,7 +439,7 @@ class CabalIRC {
   }
   cap (parameters) {
     // We do not provide any extended capabilities that i know of.
-    // responding as instructed in:
+    // responding according to irc3.0 spec with an empty 'cap' list.
     this._write(`CAP * LIST :`)
   }
 
@@ -466,9 +473,8 @@ class CabalIRC {
       user.username = user.nick
       user.realname = user.nick
 
-      // If a user is already connected,
-      // then disconnect that previous one and
-      // set the new one as active.
+      // Replace existing connections with the new connection
+      // by kicking the previous client off the net.
       if (this._user) {
         this.quit()
       }
