@@ -369,6 +369,13 @@ class CabalIRC {
   }
 
   part ([channel]) {
+    channel = channel.replace(/^#/,'')
+    let index = this.joinedChannels.indexOf(channel)
+    if (index !== -1) {
+      // Mute/Ignore the channel
+      this.joinedChannels.splice(index, 1)
+    }
+
     // Was really tempted to left this unimplemented with a message:
     // "There's no parting once you've joined the cabal"
     // But turns out that irc-clients get a bit grumpy if you don't respond
