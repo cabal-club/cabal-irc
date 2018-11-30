@@ -35,6 +35,7 @@ Current status
 | MODE      | done     | Always returns mode `+nsv`                                 |
 | CAP       | done     | Always returns empty list                                  |
 | WHOIS     | done     | TODO: can be improved with idle-time and signon-timestamp  |
+| WHO       | todo     | missing                                                    |
 | add more  | todo     | Is there other IRC commands worth to translate to cabal?   |
 
 

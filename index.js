@@ -527,7 +527,19 @@ class CabalIRC {
             return // XChat quits this way :S
           }
 
-          let cmd = message.command.toLowerCase()
+          let cmd
+
+          // Probably a bug in irc-protocol lib.
+          // for some reason, command ends up as the first parameter.
+          // Triggered using XChat when using commands like /whois, /join, /part
+          // this is a work-around to avoid crashing and 'try' to execute the command anyway.
+          if(typeof message.command === 'undefined' &&
+            typeof this[(message.parameters[0] || '').toLowerCase()] === 'function') {
+            cmd = message.parameters.shift().toLowerCase()
+          } else {
+            cmd = message.command.toLowerCase()
+          }
+
           // log(message)
           let fn = this[cmd]
           if (!fn) this.notImplemented(message)
