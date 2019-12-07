@@ -1,5 +1,4 @@
 const net = require('net')
-const ram = require('random-access-memory')
 const irc = require('irc-upd')
 const CabalIRC = require('.')
 const test = require('tape')
@@ -11,7 +10,7 @@ test.createStream()
   .pipe(tapSpec())
   .pipe(process.stdout);
 
-const bnc = new CabalIRC(ram, null, {disableSwarm: true})
+const bnc = new CabalIRC(null, {disableSwarm: true})
 
 const server = net.createServer(function (socket) {
   bnc.listen(socket)
@@ -130,7 +129,7 @@ const seedMessages = [
 
 function seedFeed (bnc, cb) {
   return new Promise((resolve) => {
-    bnc.cabal.db.ready(() => resolve())
+    resolve()
   }).then(() => { // Inject the seedMessages
     return seedMessages.reduce((p, message) => {
       return p.then(() => {
